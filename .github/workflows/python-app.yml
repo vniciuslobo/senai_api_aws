@@ -40,4 +40,3 @@ jobs:
         with:
           username: ${{secrets.DOCKER_USUARIO}}
           password: ${{secrets.DOCKER_PWD}}
-        run: echo "fazer em aula"
