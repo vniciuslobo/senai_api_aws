@@ -74,7 +74,7 @@ jobs:
 
             # verificar se publicou
             sleep 5
-            curl -f http://localhost:8080/health || exit 1
+            curl -f http://localhost/health || exit 1
             echo " Deploy feito com sucesso!"
 
             
