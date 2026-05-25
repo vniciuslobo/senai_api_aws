@@ -2,15 +2,18 @@ name: Python application
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ] # Adicionado develop
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ] # Adicionado develop
+
+# 1. Variável global definida conforme a dica do laboratório
+env:
+  IMAGE_NAME: lsnasc/senai_ci_ci
 
 jobs:
   build:
     name: compilar projeto
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python 3.10
@@ -44,38 +47,64 @@ jobs:
         uses: docker/build-push-action@v7.1.0
         with:
           push: true
+          # Utilizando a variável global
           tags: |
-            lsnasc/senai_ci_ci:latest
-            lsnasc/senai_ci_ci:${{github.sha}}
-  DEPLOY:
-    name: Implantando na ec2
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{github.sha}}
+
+  deploy_homologacao:
+    name: Deploy em Homologacao
     runs-on: ubuntu-latest
     needs: imagem
-
+    # 2. Deploy automático APENAS na branch develop
+    if: github.ref == 'refs/heads/develop'
     steps:
-      - name: Deploy na EC2 via SSH
+      - name: Deploy na EC2 (Homologação) via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          # Usando os mesmos secrets para aproveitar a mesma máquina
+          host: ${{secrets.EC2_HOST}}
+          username: ${{secrets.EC2_USER}}
+          key: ${{secrets.KEY}}
+          script: |
+            sudo docker pull ${{ env.IMAGE_NAME }}:latest
+            
+            # Limpa container de homologação antigo
+            sudo docker stop senai_ci_ci_homol 2>/dev/null || true
+            sudo docker rm senai_ci_ci_homol 2>/dev/null || true
+
+            # 3. Exigência do roteiro: rodar na porta 8080
+            sudo docker run --name senai_ci_ci_homol -d --restart unless-stopped -p 8080:8080 ${{ env.IMAGE_NAME }}:latest
+
+            sleep 5
+            curl -f http://localhost:8080/health || exit 1
+            echo " deploy de homologação successful "
+
+  deploy_producao:
+    name: Deploy em Producao
+    runs-on: ubuntu-latest
+    needs: imagem
+    # 4. Deploy SOMENTE na branch main
+    if: github.ref == 'refs/heads/main'
+    # 5. Adiciona o requirement de aprovação manual via GitHub Environment
+    environment: production
+    steps:
+      - name: Deploy na EC2 (Produção) via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{secrets.EC2_HOST}}
           username: ${{secrets.EC2_USER}}
           key: ${{secrets.KEY}}
           script: |
-            sudo docker pull lsnasc/senai_ci_ci:latest
+            sudo docker pull ${{ env.IMAGE_NAME }}:latest
             
+            # Limpa container de produção antigo
             sudo docker stop senai_ci_ci 2>/dev/null || true
             sudo docker rm senai_ci_ci 2>/dev/null || true
 
-            sudo docker run --name senai_ci_ci -d --restart unless-stopped -p 80:8080 lsnasc/senai_ci_ci:latest
+            # Roda produção na porta padrão (80)
+            sudo docker run --name senai_ci_ci -d --restart unless-stopped -p 80:8080 ${{ env.IMAGE_NAME }}:latest
 
             sleep 5
             curl -f http://localhost/health || exit 1
-            echo " deploy successful "
-
-            
-        
-      
-
-  
-          
-      
-      
+            echo " deploy de produção successful "
